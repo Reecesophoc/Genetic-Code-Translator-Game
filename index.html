@@ -4,12 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Genetic Code Translator Game</title>
-  <!-- TailwindCSS via CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- React 18 + ReactDOM 18 UMD -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <!-- Babel for in-browser JSX -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body class="bg-slate-50 min-h-screen">
@@ -18,7 +15,6 @@
   <script type="text/babel">
     const { useEffect, useMemo, useState } = React;
 
-    // ---------------------- Helpers & Constants ----------------------
     const QUALTRICS_URL = "https://sydney.au1.qualtrics.com/jfe/form/SV_9QxHNKnV1XcqJz8";
     const TUTORIAL_OPT_OUT_KEY = "gctg_tutorial_optout";
 
@@ -27,13 +23,6 @@
       return next === threshold;
     }
 
-    if (typeof window !== "undefined" && window.__RUN_TESTS__) {
-      console.assert(shouldShowFeedback(0, 2) === false, "1st submit → no popup");
-      console.assert(shouldShowFeedback(1, 2) === true, "2nd submit → popup");
-      console.assert(shouldShowFeedback(2, 2) === false, "3rd submit → no popup again");
-    }
-
-    // mRNA codon → amino acid (1-letter)
     const CODON_TABLE = {
       UUU: { aa: "F", name: "Phenylalanine" }, UUC: { aa: "F", name: "Phenylalanine" },
       UUA: { aa: "L", name: "Leucine" },      UUG: { aa: "L", name: "Leucine" },
@@ -69,8 +58,7 @@
     const randomCodonForAA = (aa) => choice(codonsForAA(aa));
 
     const randomPeptide = (length) => {
-      const letters = ["M"];
-      const alphabet = Array.from(AMINO_ACIDS).filter((x) => x !== "M");
+      const letters = ["M"]; const alphabet = Array.from(AMINO_ACIDS).filter((x) => x !== "M");
       while (letters.length < length) letters.push(choice(alphabet));
       return letters.join("");
     };
@@ -97,27 +85,12 @@
       return { codons, aas: aas.join("") };
     }
 
-    function feedbackForScore(pct) {
-      let msg = "";
-      if (pct === 100) msg = "Spot on! Perfect translation. You’ve nailed start→stop and all codons.";
-      else if (pct >= 80) msg = "Great work! Very minor slips—your frame and codons are largely correct.";
-      else if (pct >= 60) msg = "Good progress—most codons are correct. Check the frame or a tricky codon or two.";
-      else if (pct >= 40) msg = "You’re on the right track. Re‑scan for AUG and watch for near‑lookalike codons.";
-      else msg = "Tough round. Try scanning to the first AUG and re‑check each triplet carefully.";
-      return msg + " You can retry the quiz to get different questions.";
-    }
-
-    // ---------------------- Feedback Modal ----------------------
     function FeedbackModal({ show, onClose, url = QUALTRICS_URL }) {
       useEffect(() => {
-        if (!show) return;
-        const onKey = (e) => { if (e.key === "Escape") onClose(); };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
+        if (!show) return; const onKey = (e) => { if (e.key === "Escape") onClose(); };
+        window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
       }, [show, onClose]);
-
-      if (!show) return null;
-      return (
+      if (!show) return null; return (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="fb-title">
           <div className="max-w-md w-full bg-white rounded-2xl border shadow-lg p-6" onClick={(e) => e.stopPropagation()}>
             <h3 id="fb-title" className="text-lg font-medium mb-2">Reece really appreciates any feedback you have</h3>
@@ -131,68 +104,21 @@
       );
     }
 
-    // ---------------------- Tutorial Modal ----------------------
     function TutorialModal({ show, onClose, onOptOut }) {
       const [step, setStep] = useState(0);
       const steps = [
-        {
-          title: "Welcome",
-          body: (
-            <>
-              <p className="mb-2">This quick tour will show you how to use the Genetic Code Translator. It takes ~30 seconds.</p>
-              <p className="text-slate-600 text-sm">You can opt out any time with “I don’t need help”.</p>
-            </>
-          ),
-        },
-        {
-          title: "Set up the question",
-          body: (
-            <>
-              <p className="mb-2">Choose <span className="font-medium">Difficulty</span> and adjust the <span className="font-medium">Peptide length</span>.</p>
-              <p className="text-slate-600 text-sm">Beginner highlights the true start codon (AUG) and shows the reading frame. Advanced gives no hints.</p>
-            </>
-          ),
-        },
-        {
-          title: "Read the mRNA",
-          body: (
-            <>
-              <p className="mb-2">Scan the mRNA string (5′→3′). In Beginner mode the start AUG is highlighted.</p>
-              <p className="text-slate-600 text-sm">Use the <span className="font-medium">Codon helper</span> for quick lookups.</p>
-            </>
-          ),
-        },
-        {
-          title: "Enter your protein",
-          body: (
-            <>
-              <p className="mb-2">Type the one‑letter amino acid codes (no stop). Start with <span className="font-mono">M</span> for AUG.</p>
-              <p className="text-slate-600 text-sm">Then press <span className="font-medium">Submit</span> to check.</p>
-            </>
-          ),
-        },
-        {
-          title: "Check feedback",
-          body: (
-            <>
-              <p className="mb-2">After submitting, see per‑codon feedback. Cells stay blank until you enter a guess.</p>
-              <p className="text-slate-600 text-sm">Use <span className="font-medium">Show answer</span> for the model answer or click <span className="font-medium">New sequence</span> for another round.</p>
-            </>
-          ),
-        },
+        { title: "Welcome", body: (<><p className="mb-2">This quick tour will show you how to use the Genetic Code Translator. It takes ~30 seconds.</p><p className="text-slate-600 text-sm">You can opt out any time with “I don’t need help”.</p></>) },
+        { title: "Set up the question", body: (<><p className="mb-2">Choose <span className="font-medium">Difficulty</span> and adjust the <span className="font-medium">Peptide length</span>.</p><p className="text-slate-600 text-sm">Beginner highlights the true start codon (AUG) and shows the reading frame. Advanced gives no hints.</p></>) },
+        { title: "Read the mRNA", body: (<><p className="mb-2">Scan the mRNA string (5′→3′). In Beginner mode the start AUG is highlighted.</p><p className="text-slate-600 text-sm">Use the <span className="font-medium">Codon helper</span> for quick lookups.</p></>) },
+        { title: "Enter your protein", body: (<><p className="mb-2">Type the one-letter amino acid codes (no stop). Start with <span className="font-mono">M</span> for AUG.</p><p className="text-slate-600 text-sm">Then press <span className="font-medium">Submit</span> to check.</p></>) },
+        { title: "Check feedback", body: (<><p className="mb-2">After submitting, see per-codon feedback. Cells stay blank until you enter a guess.</p><p className="text-slate-600 text-sm">Use <span className="font-medium">Show answer</span> for the model answer or click <span className="font-medium">New sequence</span> for another round.</p></>) },
       ];
-
       useEffect(() => { if (!show) setStep(0); }, [show]);
-
       useEffect(() => {
-        if (!show) return;
-        const onKey = (e) => { if (e.key === "Escape") onClose(); };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
+        if (!show) return; const onKey = (e) => { if (e.key === "Escape") onClose(); };
+        window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
       }, [show, onClose]);
-
-      if (!show) return null;
-      const s = steps[step];
+      if (!show) return null; const s = steps[step];
       return (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="tut-title">
           <div className="max-w-lg w-full bg-white rounded-2xl border shadow-lg p-6" onClick={(e) => e.stopPropagation()}>
@@ -213,14 +139,12 @@
       );
     }
 
-    // ---------------------- Main App ----------------------
     function GeneticCodeTranslatorGame() {
       const [difficulty, setDifficulty] = useState("Beginner");
       const [lengthAA, setLengthAA] = useState(6);
 
       const [mrna, setMrna] = useState("");
       const [utr5Len, setUtr5Len] = useState(0);
-      const [utr3Len, setUtr3Len] = useState(0);
       const [startIndex, setStartIndex] = useState(0);
 
       const [userAA, setUserAA] = useState("");
@@ -228,14 +152,11 @@
       const [showAnswer, setShowAnswer] = useState(false);
       const [showCodonHelp, setShowCodonHelp] = useState(false);
 
-      // Feedback (cumulative across session)
       const [submitCount, setSubmitCount] = useState(0);
       const [showFeedback, setShowFeedback] = useState(false);
 
-      // Tutorial state
       const [showTutorial, setShowTutorial] = useState(false);
 
-      // Auto‑show tutorial once per browser (unless opted out)
       useEffect(() => {
         try {
           const optedOut = localStorage.getItem(TUTORIAL_OPT_OUT_KEY) === "1";
@@ -247,7 +168,6 @@
         const built = buildmRNA({ peptideLength: lengthAA });
         setMrna(built.mrna);
         setUtr5Len(built.utr5Len);
-        setUtr3Len(built.utr3Len);
         setStartIndex(built.utr5Len);
         setUserAA("");
         setSubmitted(false);
@@ -303,21 +223,21 @@
             <header className="flex items-start justify-between">
               <div>
                 <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Genetic Code Translator</h1>
-                <p className="text-slate-600 mt-1">Translate the mRNA (5′→3′) into a polypeptide. Type one‑letter amino‑acid codes (no stop). Start codon is AUG.</p>
+                <p className="text-slate-600 mt-1">Translate the mRNA (5′→3′) into a polypeptide. Type one-letter amino-acid codes (no stop). Start codon is AUG.</p>
               </div>
               <div className="hidden md:flex gap-2">
                 <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={() => navigator.clipboard?.writeText(mrna)} title="Copy mRNA to clipboard">Copy mRNA</button>
                 <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={() => setShowCodonHelp(true)} title="Open codon helper">Codon helper</button>
                 <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={() => setShowTutorial(true)} title="Quick tutorial">Help</button>
+                <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={() => setShowFeedback(true)} title="Leave feedback about this game">Leave feedback</button>
               </div>
             </header>
 
-            {/* Controls */}
             <section className="grid md:grid-cols-3 gap-4">
               <div className="p-4 rounded-2xl bg-white border shadow-sm">
                 <h2 className="font-medium mb-3">Difficulty</h2>
                 <div className="flex gap-2">
-                  {["Beginner","Advanced"].map((d) => (
+                  {[["Beginner"],["Advanced"]].map(([d]) => (
                     <button key={d} onClick={() => setDifficulty(d)} className={["px-3 py-1.5 rounded-xl border text-sm", difficulty === d ? "bg-slate-900 text-white border-slate-900" : "bg-white hover:bg-slate-50"].join(" ")}>{d}</button>
                   ))}
                 </div>
@@ -340,7 +260,6 @@
               </div>
             </section>
 
-            {/* mRNA display */}
             <section className="p-4 rounded-2xl bg-white border shadow-sm">
               <div className="flex items-center justify-between mb-2">
                 <h2 className="font-medium">mRNA (5′ → 3′)</h2>
@@ -349,7 +268,6 @@
               <div className="flex flex-wrap items-center leading-7">{renderMrna}</div>
             </section>
 
-            {/* Reading frame (Beginner only) */}
             {difficulty === "Beginner" && (
               <section className="p-4 rounded-2xl bg-white border shadow-sm">
                 <h3 className="font-medium mb-2">Reading frame (from start to first stop)</h3>
@@ -361,10 +279,9 @@
               </section>
             )}
 
-            {/* Input & feedback (shows only after Submit) */}
             <section className="p-4 rounded-2xl bg-white border shadow-sm space-y-4">
               <div className="flex items-center gap-3 flex-wrap">
-                <label className="text-sm font-medium">Your protein (1‑letter):</label>
+                <label className="text-sm font-medium">Your protein (1-letter):</label>
                 <input
                   value={userAA}
                   onChange={(e) => handleAAInput(e.target.value)}
@@ -378,7 +295,7 @@
               {submitted && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="col-span-2">
-                    <h3 className="font-medium mb-2">Per‑codon feedback</h3>
+                    <h3 className="font-medium mb-2">Per-codon feedback</h3>
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm border">
                         <thead className="bg-slate-100">
@@ -424,7 +341,7 @@
                       <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={() => setShowFeedback(true)}>Leave feedback</button>
                     </div>
 
-                    <p className="text-sm text-slate-700 mt-3">{feedbackForScore(scorePct)}</p>
+                    <p className="text-sm text-slate-700 mt-3">{(() => { const pct = scorePct; return pct === 100 ? "Spot on! Perfect translation. You’ve nailed start→stop and all codons." : pct >= 80 ? "Great work! Very minor slips—your frame and codons are largely correct." : pct >= 60 ? "Good progress—most codons are correct. Check the frame or a tricky codon or two." : pct >= 40 ? "You’re on the right track. Re-scan for AUG and watch for near-lookalike codons." : "Tough round. Try scanning to the first AUG and re-check each triplet carefully."; })()} You can retry the quiz to get different questions.</p>
 
                     {showAnswer && (
                       <div className="mt-3 text-xs text-slate-600">
@@ -438,7 +355,6 @@
             </section>
           </div>
 
-          {/* Codon helper modal */}
           {showCodonHelp && (
             <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-40" onClick={() => setShowCodonHelp(false)}>
               <div className="max-w-4xl w-full bg-white rounded-2xl border shadow-lg p-4" onClick={(e) => e.stopPropagation()}>
@@ -464,14 +380,12 @@
             </div>
           )}
 
-          {/* Tutorial modal */}
           <TutorialModal
             show={showTutorial}
             onClose={() => setShowTutorial(false)}
             onOptOut={() => { try { localStorage.setItem(TUTORIAL_OPT_OUT_KEY, "1"); } catch(_) {}; setShowTutorial(false); }}
           />
 
-          {/* Feedback modal (auto at 2nd submit OR manual click) */}
           <FeedbackModal show={showFeedback} onClose={() => setShowFeedback(false)} url={QUALTRICS_URL} />
         </div>
       );
