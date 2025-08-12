@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Genetic Code Translator Game</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <!-- Use React 17 UMD to support ReactDOM.render in sandboxed environments -->
+  <script crossorigin src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body class="bg-slate-50 min-h-screen">
@@ -39,7 +40,7 @@
     };
     const AMINO_ACIDS=new Set(["A","R","N","D","C","Q","E","G","H","I","L","K","M","F","P","S","T","W","Y","V"]);
     const BASES=["A","U","C","G"]; const pick=a=>a[Math.floor(Math.random()*a.length)];
-    const codonsForAA=aa=>Object.entries(CODON_TABLE).filter(([k,v])=>v.aa===aa&&!v.isStop).map(([k])=>k);
+    const codonsForAA=aa=>Object.entries(CODON_TABLE).filter(([,v])=>v.aa===aa&&!v.isStop).map(([k])=>k);
     const randomCodonForAA=aa=>pick(codonsForAA(aa));
 
     const randomPeptide=len=>{const letters=["M"];const alphabet=[...AMINO_ACIDS].filter(x=>x!=="M");while(letters.length<len)letters.push(pick(alphabet));return letters.join("");};
@@ -128,11 +129,13 @@
                   <Row dna="Point mutation (SNP)" prot="Silent" desc="One base changes but amino acid stays the same" example="CUU → CUC" effect="Leucine → Leucine"/>
                   <Row dna="Point mutation (SNP)" prot="Missense" desc="One base change alters amino acid" example="CUU → AUU" effect="Leucine → Isoleucine"/>
                   <Row dna="Point mutation (SNP)" prot="Nonsense" desc="One base change creates a premature stop codon" example="UAU → UAA" effect="Tyrosine → STOP"/>
-                  <Row dna="Insertion" prot="Frameshift" desc="Addition of base(s) changes the reading frame" example="CUU GGA → CUG GAA …" effect="All amino acids downstream change"/>
-                  <Row dna="Deletion" prot="Frameshift" desc="Removal of base(s) changes the reading frame" example="CUU GGA → CUG A…" effect="All amino acids downstream change"/>
-                  <Row dna="Duplication" prot="Missense / Frameshift" desc="Repeated sequence alters amino acid sequence or reading frame" example="CUU → CUUCUU" effect="Depends on length and position"/>
+                  <Row dna="Insertion" prot="Frameshift or Unknown impact" desc="Addition of base(s) — frameshift unless change is a multiple of 3 **at a codon boundary**" example="CUU GGA → CUG UGG A…" effect="Frameshift by default; ×3 at codon boundary → frame preserved"/>
+                  <Row dna="Deletion" prot="Frameshift or Unknown impact" desc="Removal of base(s) — frameshift unless change is a multiple of 3 **at a codon boundary**" example="CUU GGA → CUG A…" effect="Frameshift by default; ×3 at codon boundary → frame preserved"/>
                 </tbody>
               </table>
+            </div>
+            <div className="mt-3 text-xs text-slate-700">
+              <span className="font-medium">Note:</span> If a mutation disrupts the first <span className="font-mono">AUG</span> start codon, classify the protein effect as <span className="font-medium">Lost start codon</span>.
             </div>
           </div>
         </div>
@@ -140,82 +143,83 @@
     }
 
     // ---------- Mutation engine ----------
-    const DNA_TYPES=["Point mutation (SNP)","Insertion","Deletion","Duplication"];
-    const PROTEIN_TYPES=["Silent","Missense","Nonsense","Frameshift"];
+    const DNA_TYPES=["Point mutation (SNP)","Insertion","Deletion"];
+    const PROTEIN_TYPES=["Silent","Missense","Nonsense","Frameshift","Unknown impact","Lost start codon"];
 
-    function mutateRandom(mrna,startIndex){
-      // Try random combos until a valid one is produced
-      const combos = DNA_TYPES.flatMap(d=>PROTEIN_TYPES.map(p=>({d,p}))).sort(()=>Math.random()-0.5);
-      for(const c of combos){
-        const attempt = mutateForCategory(mrna,startIndex,c);
-        if(attempt) return {mutMrna:attempt, dnaType:c.d, proteinType:c.p};
-      }
-      // Fallback: force a simple SNP inside the coding region
-      const arr=mrna.split("");
-      let i=startIndex+3; // avoid the very first base to reduce trivial M→?
-      if(i>=mrna.length) i=startIndex;
-      for(let tries=0; tries<200 && i+2<mrna.length; tries++){
-        const j = startIndex + Math.floor(Math.random()*(mrna.length-startIndex-3));
-        const old = arr[j];
-        const options = BASES.filter(b=>b!==old);
-        arr[j] = pick(options);
-        const newMrna = arr.join("");
-        // classify protein effect
-        const oldAA = translateFrom(mrna,startIndex).aas;
-        const newAA = translateFrom(newMrna,startIndex).aas;
-        let pType = "Missense";
-        if(newAA===oldAA) pType = "Silent";
-        else if(newAA.length!==oldAA.length) pType = "Frameshift";
-        return { mutMrna:newMrna, dnaType:"Point mutation (SNP)", proteinType:pType };
-      }
-      return null;
+    function findStopIndex(mrna, startIndex){
+      for(let i=startIndex;i+2<mrna.length;i+=3){ if(CODON_TABLE[mrna.slice(i,i+3)]?.isStop) return i; }
+      return -1;
     }
 
+    function classifyProteinEffect({op,k=1, oldAA, newAA, pos, startIndex, mutMrna}){
+      // If the first AUG at startIndex is disrupted, prioritise this category
+      if (mutMrna && mutMrna.slice(startIndex, startIndex+3) !== "AUG") {
+        return "Lost start codon";
+      }
+      if(op==="Point mutation (SNP)"){
+        if(newAA===oldAA) return "Silent";
+        if(newAA.length < oldAA.length) return "Nonsense"; // premature stop
+        return "Missense"; // same length but different residues
+      }
+      // Indels: frameshift unless length is multiple of 3 **and** the edit begins at a codon boundary
+      if(op==="Insertion" || op==="Deletion"){
+        if((k % 3) !== 0) return "Frameshift";
+        const inFrameBoundary = ((pos - startIndex) % 3 === 0);
+        return inFrameBoundary ? "Unknown impact" : "Frameshift";
+      }
+      return "Frameshift";
+    }
+
+    function mutateRandom(mrna,startIndex){
+      const stopIdx = findStopIndex(mrna,startIndex); if(stopIdx<0) return null;
+      const dnaType = pick(["Point mutation (SNP)","Insertion","Deletion"]);
+      const arr = mrna.split("");
+      let k=1; // number of bases added/removed for indels
+      let pos = startIndex + Math.floor(Math.random() * Math.max(1, (stopIdx - startIndex - 1)));
+      pos = Math.max(startIndex, Math.min(pos, stopIdx-1));
+
+      if(dnaType === "Point mutation (SNP)"){
+        const options = BASES.filter(b=>b!==arr[pos]);
+        arr[pos] = pick(options);
+      } else if(dnaType === "Insertion"){
+        k = (Math.random()<0.5?1:3);
+        const ins = Array.from({length:k},()=>pick(BASES));
+        arr.splice(pos,0,...ins);
+      } else if(dnaType === "Deletion"){
+        k = (Math.random()<0.5?1:3);
+        if(pos + k > stopIdx) pos = Math.max(startIndex, stopIdx - k);
+        arr.splice(pos,k);
+      }
+
+      const mutMrna = arr.join("");
+      const oldAA = translateFrom(mrna,startIndex).aas;
+      const newAA = translateFrom(mutMrna,startIndex).aas;
+      const proteinType = classifyProteinEffect({op:dnaType, k, oldAA, newAA, pos, startIndex, mutMrna});
+      return { mutMrna, dnaType, proteinType, k, oldAA, newAA, pos };
+    }
+
+    // Optional legacy helper kept tidy (not used by UI)
     function mutateForCategory(mrna,startIndex,goal){
-      const arr=mrna.split("");
-      const codingStart=startIndex;
-      let stopIdx=-1; for(let i=codingStart;i+2<mrna.length;i+=3){const c=mrna.slice(i,i+3);if(CODON_TABLE[c]?.isStop){stopIdx=i;break}}
-      if(stopIdx<0) return null;
+      const dnaType = goal?.d; if(!dnaType) return null;
+      const stopIdx = findStopIndex(mrna,startIndex); if(stopIdx<0) return null;
+      const arr = mrna.split("");
+      let k=1;
+      let pos = startIndex + Math.floor(Math.random() * Math.max(1, (stopIdx - startIndex - 1)));
+      pos = Math.max(startIndex, Math.min(pos, stopIdx-1));
 
-      const within=(i)=>i>=codingStart && i<stopIdx;
-      const applyAndCheck=(newArr)=>{
-        const newMrna=newArr.join("");
-        const tOld=translateFrom(mrna,codingStart).aas;
-        const tNew=translateFrom(newMrna,codingStart).aas;
-        let proteinType="";
-        if(tNew===tOld) proteinType="Silent";
-        else if(tNew.length!==tOld.length) proteinType="Frameshift";
-        else if(tNew.includes("*")) proteinType="Nonsense"; // defensive
-        else proteinType="Missense";
-        return {newMrna,proteinType};
-      }
-
-      const changeBase=(i)=>{
-        const b=arr[i]; const choices=BASES.filter(x=>x!==b);
-        for(const nb of choices){const copy=[...arr];copy[i]=nb;const {newMrna}=applyAndCheck(copy); return newMrna;}
-        return null;
-      }
-
-      // FIX: use goal.d (DNA type) instead of undefined goal.dna
-      if(goal.d && goal.d.startsWith("Point")){
-        for(let attempt=0;attempt<200;attempt++){
-          const i=codingStart+Math.floor(Math.random()*((stopIdx-codingStart))); if(!within(i)) continue; const res=changeBase(i); if(res){return res;}
-        }
-        return null;
-      }
-
-      if(["Insertion","Deletion","Duplication"].includes(goal.d)){
-        for(let attempt=0;attempt<200;attempt++){
-          const i=codingStart+Math.floor(Math.random()*(stopIdx-codingStart)); if(!within(i)) continue;
-          let copy=[...arr];
-          if(goal.d==="Insertion"){ copy.splice(i,0,pick(BASES)); }
-          else if(goal.d==="Deletion"){ copy.splice(i,1); }
-          else if(goal.d==="Duplication"){ copy.splice(i,0,arr[i]||pick(BASES)); }
-          const {newMrna}=applyAndCheck(copy); return newMrna;
-        }
-        return null;
-      }
-      return null;
+      if(dnaType.startsWith("Point")){
+        const options = BASES.filter(b=>b!==arr[pos]);
+        arr[pos] = pick(options);
+      } else if(dnaType === "Insertion"){
+        k = (Math.random()<0.5?1:3);
+        const ins = Array.from({length:k},()=>pick(BASES));
+        arr.splice(pos,0,...ins);
+      } else if(dnaType === "Deletion"){
+        k = (Math.random()<0.5?1:3);
+        if(pos + k > stopIdx) pos = Math.max(startIndex, stopIdx - k);
+        arr.splice(pos,k);
+      } else { return null; }
+      return arr.join("");
     }
 
     function diffSpans(a,b){
@@ -234,14 +238,36 @@
       const [protAnswer,setProtAnswer]=useState("");
       const [checked,setChecked]=useState(false);
       const [notified,setNotified]=useState(false);
+      const [showProteins,setShowProteins]=useState(false);
 
       const generateRandom=()=>{
         const c = mutateRandom(mrna,startIndex);
-        if(c) { setChallenge(c); setDnaAnswer(""); setProtAnswer(""); setChecked(false);} else { alert("Couldn’t generate a valid mutation. Try again."); }
+        if(c) { setChallenge(c); setDnaAnswer(""); setProtAnswer(""); setChecked(false); setShowProteins(false);} else { alert("Couldn’t generate a valid mutation. Try again."); }
       };
 
       const ok = checked && challenge && dnaAnswer===challenge.dnaType && protAnswer===challenge.proteinType;
       useEffect(()=>{ if(ok && !notified && onFirstCorrect){ setNotified(true); onFirstCorrect(); } }, [ok, notified, onFirstCorrect]);
+
+      const originalAA = useMemo(()=> translateFrom(mrna, startIndex).aas, [mrna, startIndex]);
+      const mutatedAA = useMemo(()=> challenge ? translateFrom(challenge.mutMrna, startIndex).aas : "", [challenge, startIndex]);
+
+      const explanation = React.useMemo(()=>{
+        if(!challenge) return "";
+        const { dnaType, proteinType, k, pos } = challenge;
+        if (proteinType === "Lost start codon") {
+          return "The first AUG start codon was disrupted — translation would be unable to initiate correctly.";
+        }
+        if(dnaType==="Point mutation (SNP)"){
+          if(proteinType==="Silent") return "Single‑nucleotide change that did not alter the amino acid.";
+          if(proteinType==="Missense") return "Single‑nucleotide change altered a codon, changing one amino acid.";
+          if(proteinType==="Nonsense") return "Single‑nucleotide change created a premature stop codon, truncating the protein.";
+        } else {
+          const boundaryNote = ((pos - startIndex) % 3 === 0) ? "at a codon boundary" : "mid‑codon (not at a codon boundary)";
+          if(proteinType==="Frameshift") return `${dnaType}: ${k} base(s) changed ${boundaryNote} — the reading frame is disrupted.`;
+          if(proteinType==="Unknown impact") return `${dnaType}: ${k} base(s) changed at a codon boundary (multiple of 3) — frame preserved; residues added/removed.`;
+        }
+        return "";
+      },[challenge, startIndex]);
 
       return (
         <section className="p-4 rounded-2xl bg-white border shadow-sm space-y-3">
@@ -275,9 +301,24 @@
                     {PROTEIN_TYPES.map(x=> <option key={x} value={x}>{x}</option>)}
                   </select>
                   <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>setChecked(true)} disabled={!dnaAnswer||!protAnswer}>Check</button>
+                  <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>setShowProteins(s=>!s)}>{showProteins?"Hide translated proteins":"Show translated proteins"}</button>
                 </div>
+
                 {checked && (
-                  <div className={"mt-2 text-sm "+(ok?"text-emerald-700":"text-rose-700")}>{ok?"Correct!":"Not quite — use the Mutation helper and try again."}</div>
+                  <div className="mt-2 text-sm text-slate-800">
+                    <div>DNA: <span className="font-medium">{dnaAnswer||"—"}</span> → {dnaAnswer===(challenge?.dnaType) ? <span className="text-emerald-700">✓ Correct</span> : <span className="text-rose-700">✗ Correct is {challenge?.dnaType}</span>}</div>
+                    <div className="mt-1">Protein: <span className="font-medium">{protAnswer||"—"}</span> → {protAnswer===(challenge?.proteinType) ? <span className="text-emerald-700">✓ Correct</span> : <span className="text-rose-700">✗ Correct is {challenge?.proteinType}</span>}</div>
+                    {explanation && <div className="mt-2 text-slate-700 text-xs">{explanation}</div>}
+                    <div className={"mt-2 "+(dnaAnswer===challenge?.dnaType && protAnswer===challenge?.proteinType?"text-emerald-700":"text-rose-700")}>{dnaAnswer===challenge?.dnaType && protAnswer===challenge?.proteinType?"Correct!":"Not quite — use the Mutation helper and try again."}</div>
+                  </div>
+                )}
+
+                {showProteins && (
+                  <div className="mt-2 text-xs text-slate-700">
+                    <div><span className="font-medium">Original protein:</span> {originalAA}</div>
+                    <div className="mt-1"><span className="font-medium">Mutated protein:</span> {mutatedAA}</div>
+                    <div className="mt-1 text-slate-600">{(mutatedAA.length===originalAA.length?"Frame preserved (possible ×3-base change).":"Frameshift likely (length changed).")}</div>
+                  </div>
                 )}
               </div>
             </div>
@@ -480,22 +521,55 @@
       );
     }
 
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App/>);
+    // React 17 render for sandbox compatibility
+    ReactDOM.render(<App/>, document.getElementById('root'));
 
     // --------- Minimal smoke tests (console) ---------
     (function runTests(){
       try{
-        // Deterministic simple mRNA with AUG...UAA inside
         const testMrna = "AAA" + "AUG" + "GCU" + "GCU" + "UAA" + "AAA";
         const startIdx = 3;
-        const res = mutateForCategory(testMrna, startIdx, { d: "Point mutation (SNP)", p: "Missense" });
-        console.assert(typeof res === "string" && res.length > 0, "mutateForCategory should return a mutated mRNA string");
-
         const rnd = mutateRandom(testMrna, startIdx);
-        console.assert(rnd && typeof rnd.mutMrna === "string" && rnd.dnaType && rnd.proteinType, "mutateRandom returns full object");
+        console.assert(rnd && typeof rnd.mutMrna === "string" && rnd.dnaType && rnd.proteinType, "mutateRandom returns full object with computed classification");
 
-        console.log("[Genetic Code Translator] basic tests passed.");
+        // Manual ×3-base insertion preserves frame → Unknown impact (boundary)
+        const before = translateFrom(testMrna,startIdx).aas;
+        const arr = testMrna.split("");
+        arr.splice(startIdx+3,0,"A","A","A");
+        const after = translateFrom(arr.join(""),startIdx).aas;
+        const protType = classifyProteinEffect({op:"Insertion",k:3,oldAA:before,newAA:after,pos:startIdx+3,startIndex:startIdx,mutMrna:arr.join("")});
+        console.assert(protType === "Unknown impact","×3 boundary indel → Unknown impact");
+
+        // Manual 1-base deletion → Frameshift
+        const arr2 = testMrna.split("");
+        arr2.splice(startIdx+4,1);
+        const after2 = translateFrom(arr2.join(""),startIdx).aas;
+        const protType2 = classifyProteinEffect({op:"Deletion",k:1,oldAA:before,newAA:after2,pos:startIdx+4,startIndex:startIdx,mutMrna:arr2.join("")});
+        console.assert(protType2 === "Frameshift","1-base indel → Frameshift");
+
+        // ×3-base insertion mid-codon should be Frameshift under teaching rule
+        const arr3 = testMrna.split("");
+        arr3.splice(startIdx+4,0,"A","A","A");
+        const after3 = translateFrom(arr3.join(""),startIdx).aas;
+        const protType3 = classifyProteinEffect({op:"Insertion",k:3,oldAA:before,newAA:after3,pos:startIdx+4,startIndex:startIdx,mutMrna:arr3.join("")});
+        console.assert(protType3 === "Frameshift","×3 mid‑codon indel → Frameshift (teaching rule)");
+
+        // Lost-start tests
+        const arr4 = testMrna.split("");
+        arr4[startIdx] = (arr4[startIdx] === "A" ? "C" : "C");
+        const mut4 = arr4.join("");
+        const after4 = translateFrom(mut4,startIdx).aas;
+        const type4 = classifyProteinEffect({op:"Point mutation (SNP)",k:1,oldAA:before,newAA:after4,pos:startIdx,startIndex:startIdx,mutMrna:mut4});
+        console.assert(type4 === "Lost start codon","Point mutation at start AUG → Lost start codon");
+
+        const arr5 = testMrna.split("");
+        arr5.splice(startIdx,0,"C"); // insert one base at the beginning of AUG
+        const mut5 = arr5.join("");
+        const after5 = translateFrom(mut5,startIdx).aas;
+        const type5 = classifyProteinEffect({op:"Insertion",k:1,oldAA:before,newAA:after5,pos:startIdx,startIndex:startIdx,mutMrna:mut5});
+        console.assert(type5 === "Lost start codon","Insertion at AUG → Lost start codon");
+
+        console.log("[Genetic Code Translator] tests passed.");
       }catch(err){
         console.error("[Genetic Code Translator] tests failed:", err);
       }
