@@ -14,7 +14,7 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useEffect, useMemo, useState } = React;
+    const { useEffect, useMemo, useState } = React; // React 17
 
     const QUALTRICS_URL = "https://sydney.au1.qualtrics.com/jfe/form/SV_9QxHNKnV1XcqJz8";
     const TUTORIAL_OPT_OUT_KEY = "gctg_tutorial_optout";
@@ -56,10 +56,17 @@
       const coding=["AUG",...peptide.slice(1).split("").map(randomCodonForAA),pick(["UAA","UAG","UGA"])].join("");
       return{mrna:utr5+coding+utr3,utr5Len,utr3Len,peptide,coding}
     };
+
+    // Translation from an index (no highlight assumptions)
     function translateFrom(mrna,startIndex){
+      if(!Number.isFinite(startIndex) || startIndex<0) return {codons:[], aas:""};
       const codons=[];const aas=[];
       for(let i=startIndex;i+2<mrna.length;i+=3){
-        const codon=mrna.slice(i,i+3);const info=CODON_TABLE[codon];if(!info)break;codons.push(codon);if(info.isStop)break;else aas.push(info.aa);
+        const codon=mrna.slice(i,i+3);
+        const info=CODON_TABLE[codon];
+        if(!info) break;
+        codons.push(codon);
+        if(info.isStop) break; else aas.push(info.aa);
       }
       return{codons,aas:aas.join("")}
     };
@@ -163,6 +170,80 @@
       );
     }
 
+    // ---------- Docked Codon Chart (optional on-page chart) ----------
+    function DockedCodonChart({ show, onClose }){
+      const [filterB1,setFilterB1]=useState("");
+      const [filterB2,setFilterB2]=useState("");
+      const [filterAA,setFilterAA]=useState("");
+      const [labelMode,setLabelMode]=useState('1'); // 1 or 3
+      if(!show) return null;
+      return (
+        <div className="fixed right-3 top-3 bottom-3 w-[min(420px,95vw)] z-40">
+          <div className="h-full bg-white border rounded-2xl shadow-xl p-4 flex flex-col">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-medium">Codon chart</h3>
+              <div className="flex items-center gap-2">
+                <div className="text-[11px] text-slate-600">Labels:</div>
+                <div className="inline-flex border rounded-lg overflow-hidden text-[11px]">
+                  <button className={`px-2 py-1 ${labelMode==='1'?'bg-slate-900 text-white':'bg-white'}`} onClick={()=>setLabelMode('1')}>1‑letter</button>
+                  <button className={`px-2 py-1 ${labelMode==='3'?'bg-slate-900 text-white':'bg-white'}`} onClick={()=>setLabelMode('3')}>3‑letter</button>
+                </div>
+                <button className="px-2 py-1 rounded-lg border" onClick={onClose}>Close</button>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-xs mb-3">
+              <div>
+                <div className="text-[11px] text-slate-600 mb-1">Base 1</div>
+                <div className="flex gap-1 flex-wrap">
+                  {["","A","U","C","G"].map(b=> (
+                    <button key={'b1'+b} className={`px-2 py-1 border rounded-md ${filterB1===b?'bg-slate-900 text-white border-slate-900':'bg-white'}`} onClick={()=>setFilterB1(b)}>{b||'Any'}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-[11px] text-slate-600 mb-1">Base 2</div>
+                <div className="flex gap-1 flex-wrap">
+                  {["","A","U","C","G"].map(b=> (
+                    <button key={'b2'+b} className={`px-2 py-1 border rounded-md ${filterB2===b?'bg-slate-900 text-white border-slate-900':'bg-white'}`} onClick={()=>setFilterB2(b)}>{b||'Any'}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-[11px] text-slate-600 mb-1">Amino acid</div>
+                <input className="w-full px-2 py-1 border rounded-md" placeholder="e.g., M or Met" value={filterAA} onChange={e=>setFilterAA(e.target.value)} />
+                <div className="text-[11px] text-slate-500 mt-1">Filter by 1‑letter (M) or 3‑letter (Met)</div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 overflow-y-auto">
+              {Object.entries(CODON_TABLE)
+                .sort((a,b)=>a[0].localeCompare(b[0]))
+                .filter(([codon, info])=>{
+                  if(filterB1 && codon[0]!==filterB1) return false;
+                  if(filterB2 && codon[1]!==filterB2) return false;
+                  if(filterAA){
+                    const q = filterAA.trim().toUpperCase();
+                    const aa1 = info.isStop? '*' : info.aa;
+                    const aa3 = info.isStop? 'STOP' : (AA1_TO_3[aa1]||'').toUpperCase();
+                    if(!(aa1.includes(q) || aa3.includes(q))) return false;
+                  }
+                  return true;
+                })
+                .map(([codon,info])=> {
+                  const aa1 = info.isStop ? '*' : info.aa;
+                  const label = info.isStop ? 'Stop' : (labelMode==='1' ? aa1 : (AA1_TO_3[aa1]||aa1));
+                  return (
+                    <button key={'dock-'+codon} onClick={()=>navigator.clipboard&&navigator.clipboard.writeText(codon)} className={["flex items-center justify-between w-full px-2 py-1 border rounded-xl text-xs", info.isStop?"bg-rose-50 border-rose-200":info.isStart?"bg-emerald-50 border-emerald-200":"bg-white"].join(" ")} title={`${codon} → ${info.isStop?"Stop":info.aa} ${info.name}`}>
+                      <span className="font-mono text-sm">{codon}</span>
+                      <span className="ml-2">{label}</span>
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // ---------- Mutation engine ----------
     const DNA_TYPES=["Point mutation (SNP)","Insertion","Deletion"];
     const PROTEIN_TYPES=["Silent","Missense","Nonsense","Frameshift","Unknown impact","Lost start codon"];
@@ -181,7 +262,7 @@
       }
       if(op==="Insertion" || op==="Deletion"){
         if((k % 3) !== 0) return "Frameshift";
-        return isBoundary(pos,startIndex) ? "Unknown impact" : "Frameshift";
+        return isBoundary(pos,startIndex) ? "Unknown impact" : "Frameshift"; // ×3 mid‑codon still frameshifts
       }
       return "Frameshift";
     }
@@ -224,29 +305,29 @@
     }
 
     // ---------- Codon Tracker ----------
-    function CodonTracker({ mrna, startIndex, difficulty, manualStart, onResetManualStart }){
+    function CodonTracker({ mrna, startIndex, difficulty, manualStart, onResetManualStart }) {
       const [checked, setChecked] = useState(new Set());
 
       const effectiveStart = (difficulty === 'Beginner') ? startIndex : (typeof manualStart === 'number' ? manualStart : null);
 
+      // Rebuild tracker when sequence/start changes and clear ticks
+      useEffect(()=>{ setChecked(new Set()); }, [mrna, effectiveStart]);
+
       const codonChunks = useMemo(() => {
         if (effectiveStart == null) return [];
         const chunks = [];
-        // Build chips from the chosen base. Always show at least one chip,
-        // even if it's a partial (<3 nt). Stop after first full stop codon.
         for (let i = effectiveStart; i < mrna.length; i += 3) {
           const end = Math.min(i + 3, mrna.length);
           const c = mrna.slice(i, end);
           const partial = (end - i) < 3;
           chunks.push({ i, c, partial });
           if (!partial && CODON_TABLE[c]?.isStop) break;
-          if (chunks.length >= 120) break; // hard safety cap
+          if (chunks.length >= 120) break;
         }
         return chunks;
       }, [effectiveStart, mrna, difficulty]);
 
       const toggle = (i) => setChecked(prev => { const next = new Set(prev); if (next.has(i)) next.delete(i); else next.add(i); return next; });
-      const reset = () => setChecked(new Set());
 
       return (
         <section className="p-4 rounded-2xl bg-white border shadow-sm">
@@ -256,7 +337,7 @@
               {difficulty==='Advanced' && (
                 <>
                   <span>Start: {manualStart==null? 'click a base in the mRNA to set' : manualStart}</span>
-                  {manualStart!=null && <button className="px-2 py-1 rounded-lg border bg-white hover:bg-slate-50" onClick={onResetManualStart}>Clear start</button>}
+                  {manualStart!=null && <button className="px-2 py-1 rounded-lg border bg-white hover:bg-slate-50" onClick={()=>{onResetManualStart(); setChecked(new Set());}}>Clear start</button>}
                 </>
               )}
             </div>
@@ -265,9 +346,20 @@
             {difficulty==='Beginner' ? 'Tracking from the highlighted AUG.' : (effectiveStart==null ? 'Click any base in the mRNA above to set your starting position, then tick codons as you go.' : 'Tracker uses your chosen starting base. Click codons to tick them off.')} 
           </p>
           <div className="flex flex-wrap gap-1">
-            {codonChunks.map(({i,c,partial},idx)=> (
-              <button key={i} onClick={() => toggle(i)} className={`px-2 py-1 rounded-md border ${partial ? 'border-dashed' : ''} border-slate-300 text-sm font-mono ${checked.has(i) ? 'line-through opacity-50 bg-slate-100' : 'bg-white'}`} title={`Codon ${idx+1} @ ${i}`}>{c}</button>
-            ))}
+            {codonChunks.map(({i,c,partial},idx)=> {
+              const ticked = checked.has(i);
+              return (
+                <button
+                  key={i}
+                  onClick={() => toggle(i)}
+                  className={`relative px-2 py-1 rounded-md border ${partial ? 'border-dashed' : ''} border-slate-300 text-sm font-mono transition-colors ${ticked ? 'bg-slate-200 line-through opacity-60' : 'bg-white hover:bg-slate-50'}`}
+                  title={`Codon ${idx+1} @ ${i}`}
+                >
+                  {c}
+                  {ticked && <span aria-hidden className="absolute -right-2 -top-2 text-emerald-600 text-xs">✓</span>}
+                </button>
+              );
+            })}
           </div>
           {effectiveStart==null && (
             <div className="text-xs text-slate-500 mt-2">Tip: in Advanced mode you must set a start by clicking a base in the mRNA above.</div>
@@ -289,6 +381,7 @@
       const [submitted,setSubmitted]=useState(false);
       const [showAnswer,setShowAnswer]=useState(false);
       const [showCodonHelp,setShowCodonHelp]=useState(false);
+      const [dockCodon,setDockCodon]=useState(false);
       const [showFeedback,setShowFeedback]=useState(false);
       const [showTutorial,setShowTutorial]=useState(false);
       const [showNextTip,setShowNextTip]=useState(false);
@@ -296,7 +389,12 @@
       const [submitCount,setSubmitCount]=useState(0);
       const [manualStart,setManualStart]=useState(null);
 
-      const newRound=()=>{const b=buildmRNA({peptideLength:lengthAA}); setMrna(b.mrna); setUtr5Len(b.utr5Len); setStartIndex(b.utr5Len); setRawInput(""); setUserAA(""); setSubmitted(false); setShowAnswer(false); setManualStart(null)};
+      const newRound=()=>{
+        const b=buildmRNA({peptideLength:lengthAA});
+        setMrna(b.mrna); setUtr5Len(b.utr5Len); setStartIndex(b.utr5Len);
+        setRawInput(""); setUserAA(""); setSubmitted(false); setShowAnswer(false);
+        setManualStart(null);
+      };
 
       useEffect(()=>{newRound()},[]);
       useEffect(()=>{newRound()},[difficulty,lengthAA]);
@@ -352,9 +450,10 @@
                 <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Genetic Code Translator</h1>
                 <p className="text-slate-600 mt-1">Translate the mRNA (5′→3′) into a polypeptide. Type one‑letter <span className="hidden sm:inline">or switch to 3‑letter</span> amino‑acid codes (no stop). Start codon is AUG.</p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
                 <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>navigator.clipboard?.writeText(mrna)}>Copy mRNA</button>
                 <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>setShowCodonHelp(true)}>Codon helper</button>
+                <button className={`px-3 py-2 rounded-xl border shadow-sm ${dockCodon?'bg-slate-900 text-white border-slate-900':'bg-white hover:bg-slate-50'}`} onClick={()=>setDockCodon(s=>!s)}>{dockCodon? 'Hide codon chart' : 'Dock codon chart'}</button>
                 <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>setShowTutorial(true)}>Help</button>
                 <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>setShowFeedback(true)}>Leave feedback</button>
               </div>
@@ -460,7 +559,10 @@
 
           </div>
 
-          {/* Codon helper */}
+          {/* Docked on‑page codon chart */}
+          <DockedCodonChart show={dockCodon} onClose={()=>setDockCodon(false)} />
+
+          {/* Modal codon helper */}
           {showCodonHelp && (
             <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-40" onClick={()=>setShowCodonHelp(false)}>
               <div className="max-w-4xl w-full bg-white rounded-2xl border shadow-lg p-4" onClick={e=>e.stopPropagation()}>
@@ -468,8 +570,8 @@
                 <p className="text-sm text-slate-600 mb-3">Click a codon to copy. Stop codons shown as *; AUG = start.</p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-[60vh] overflow-y-auto">
                   {Object.entries(CODON_TABLE).sort((a,b)=>a[0].localeCompare(b[0])).map(([codon,info])=> (
-                    <button key={codon} onClick={()=>navigator.clipboard&&navigator.clipboard.writeText(codon)} className={["flex items-center justify-between w-full px-3 py-2 border rounded-xl", info.isStop?"bg-rose-50 border-rose-200":info.isStart?"bg-emerald-50 border-emerald-200":"bg-white"].join(" ")} title={`${codon} → ${info.isStop?"Stop":info.aa} ${info.name}`}>
-                      <span className="font-mono">{codon}</span><span className="text-sm">{info.isStop?"Stop":`${info.aa} – ${info.name}`}</span>
+                    <button key={codon} onClick={()=>navigator.clipboard&&navigator.clipboard.writeText(codon)} className={["flex items-center justify-between w-full px-2 py-1 border rounded-xl text-xs", info.isStop?"bg-rose-50 border-rose-200":info.isStart?"bg-emerald-50 border-emerald-200":"bg-white"].join(" ")} title={`${codon} → ${info.isStop?"Stop":info.aa} ${info.name}`}>
+                      <span className="font-mono text-sm">{codon}</span><span className="text-[11px]">{info.isStop?"Stop":`${info.aa} – ${info.name}`}</span>
                     </button>
                   ))}
                 </div>
@@ -501,7 +603,7 @@
 
     // ---------- Mutation module (uses updated classifier) ----------
     function MutationModule({ mrna, startIndex, onFirstCorrect }){
-      const [challenge,setChallenge]=useState(null); // {mutMrna, dnaType, proteinType}
+      const [challenge,setChallenge]=useState(null);
       const [showHelper,setShowHelper]=useState(false);
       const [dnaAnswer,setDnaAnswer]=useState("");
       const [protAnswer,setProtAnswer]=useState("");
@@ -602,8 +704,8 @@
     // --------- Minimal smoke tests (console) ---------
     (function runTests(){
       try{
-        const testMrna = "AAA" + "AUG" + "GCU" + "GCU" + "UAA" + "AAA";
-        const startIdx = 3;
+        const testMrna = "AAA" + "AUG" + "GCU" + "GCU" + "UAA" + "AAA"; // utr5Len=3
+        const startIdx = 3; // valid AUG position
 
         const before = translateFrom(testMrna,startIdx).aas;
         console.assert(before.startsWith("MA"), "Baseline translation starts with M...");
@@ -615,7 +717,7 @@
         const t1 = classifyProteinEffect({op:"Insertion",k:3,oldAA:before,newAA:after1,pos:startIdx+3,startIndex:startIdx,mutMrna:arr1.join("")});
         console.assert(t1 === "Unknown impact","×3 boundary indel → Unknown impact");
 
-        // 1-base deletion (mid-codon) → Frameshift
+        // 1-base deletion mid‑codon → Frameshift
         const arr2 = testMrna.split("");
         arr2.splice(startIdx+4,1);
         const after2 = translateFrom(arr2.join(""),startIdx).aas;
@@ -633,6 +735,10 @@
         // Parser 3-letter → 1-letter
         const parsed = ("Met Ala Cys").toUpperCase().match(/([A-Z]{3})/g).map(t=>AA3_TO_1[t]||"").join("");
         console.assert(parsed === "MAC","3-letter parser converts to MAC");
+
+        // Translation guard near the end (no crash)
+        const guard = translateFrom("AUGAA", 4).aas; // partial at end
+        console.assert(typeof guard === 'string', 'translateFrom returns string even for near-end start');
 
         console.log("[Genetic Code Translator] tests passed.");
       }catch(err){
