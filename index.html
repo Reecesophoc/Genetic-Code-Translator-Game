@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Genetic Code Translator Game</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Use React 17 UMD to support ReactDOM.render in sandboxed environments -->
+  <!-- React 17 UMD for sandbox/browser compatibility -->
   <script crossorigin src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -43,9 +43,29 @@
     const codonsForAA=aa=>Object.entries(CODON_TABLE).filter(([,v])=>v.aa===aa&&!v.isStop).map(([k])=>k);
     const randomCodonForAA=aa=>pick(codonsForAA(aa));
 
+    // 3-letter ↔ 1-letter maps
+    const AA3_TO_1 = { ALA:"A", ARG:"R", ASN:"N", ASP:"D", CYS:"C", GLN:"Q", GLU:"E", GLY:"G", HIS:"H", ILE:"I", LEU:"L", LYS:"K", MET:"M", PHE:"F", PRO:"P", SER:"S", THR:"T", TRP:"W", TYR:"Y", VAL:"V", TER:"*", STOP:"*" };
+    const AA1_TO_3 = { A:"Ala", R:"Arg", N:"Asn", D:"Asp", C:"Cys", Q:"Gln", E:"Glu", G:"Gly", H:"His", I:"Ile", L:"Leu", K:"Lys", M:"Met", F:"Phe", P:"Pro", S:"Ser", T:"Thr", W:"Trp", Y:"Tyr", V:"Val", "*":"Stop" };
+
     const randomPeptide=len=>{const letters=["M"];const alphabet=[...AMINO_ACIDS].filter(x=>x!=="M");while(letters.length<len)letters.push(pick(alphabet));return letters.join("");};
-    function buildmRNA({peptideLength}){const utr5Len=Math.floor(Math.random()*9)+3;const utr3Len=Math.floor(Math.random()*9)+3;const utr5=Array.from({length:utr5Len},()=>pick(BASES)).join("");const utr3=Array.from({length:utr3Len},()=>pick(BASES)).join("");const peptide=randomPeptide(peptideLength);const coding=["AUG",...peptide.slice(1).split("").map(randomCodonForAA),pick(["UAA","UAG","UGA"])].join("");return{mrna:utr5+coding+utr3,utr5Len,utr3Len,peptide,coding}};
-    function translateFrom(mrna,startIndex){const codons=[];const aas=[];for(let i=startIndex;i+2<mrna.length;i+=3){const codon=mrna.slice(i,i+3);const info=CODON_TABLE[codon];if(!info)break;codons.push(codon);if(info.isStop)break;else aas.push(info.aa);}return{codons,aas:aas.join("")}};
+    function buildmRNA({peptideLength}){
+      const utr5Len=Math.floor(Math.random()*9)+3;const utr3Len=Math.floor(Math.random()*9)+3;
+      const utr5=Array.from({length:utr5Len},()=>pick(BASES)).join("");
+      const utr3=Array.from({length:utr3Len},()=>pick(BASES)).join("");
+      const peptide=randomPeptide(peptideLength);
+      const coding=["AUG",...peptide.slice(1).split("").map(randomCodonForAA),pick(["UAA","UAG","UGA"])].join("");
+      return{mrna:utr5+coding+utr3,utr5Len,utr3Len,peptide,coding}
+    };
+    function translateFrom(mrna,startIndex){
+      const codons=[];const aas=[];
+      for(let i=startIndex;i+2<mrna.length;i+=3){
+        const codon=mrna.slice(i,i+3);const info=CODON_TABLE[codon];if(!info)break;codons.push(codon);if(info.isStop)break;else aas.push(info.aa);
+      }
+      return{codons,aas:aas.join("")}
+    };
+
+    // ---------- Utilities ----------
+    const isBoundary = (pos, startIndex) => ((pos - startIndex) % 3 === 0);
 
     // ---------- Feedback modal ----------
     function FeedbackModal({ show, onClose, url = QUALTRICS_URL }){
@@ -70,9 +90,10 @@
       const [step,setStep]=useState(0);
       const steps=[
         {t:"Welcome",b:(<>This quick tour takes ~30 seconds. You can opt out any time with “I don’t need help”.</>)},
-        {t:"Set up the question",b:(<>Choose <b>Difficulty</b> and adjust <b>Peptide length</b>. Beginner highlights AUG and shows the frame; Advanced gives no hints.</>)},
+        {t:"Set up the question",b:(<>Choose <b>Difficulty</b> and adjust <b>Peptide length</b>. Beginner highlights AUG; Advanced gives no hints.</>)},
         {t:"Read the mRNA",b:(<>Scan the mRNA string (5′→3′). Use the <b>Codon helper</b> for quick look‑ups.</>)},
-        {t:"Enter your protein",b:(<>Type one‑letter amino‑acid codes (no stop). Start with <span className="font-mono">M</span>. Then press <b>Submit</b>.</>)},
+        {t:"Enter your protein",b:(<>Type one‑letter or switch to <b>3‑letter</b> amino‑acid codes (no stop). Start with <span className="font-mono">M</span>. Then press <b>Submit</b>.</>)},
+        {t:"Track your place",b:(<>Use the <b>Codon tracker</b> to tick off codons you’ve handled. In Advanced, click any base in the mRNA to set your starting position; in Beginner it uses the start AUG.</>)},
         {t:"Check feedback",b:(<>After submitting, see per‑codon feedback. Blank cells mean no guess yet. Use <b>Show answer</b> or <b>New sequence</b>.</>)},
       ];
       useEffect(()=>{if(!show) setStep(0)},[show]);
@@ -152,20 +173,15 @@
     }
 
     function classifyProteinEffect({op,k=1, oldAA, newAA, pos, startIndex, mutMrna}){
-      // If the first AUG at startIndex is disrupted, prioritise this category
-      if (mutMrna && mutMrna.slice(startIndex, startIndex+3) !== "AUG") {
-        return "Lost start codon";
-      }
+      if (mutMrna && mutMrna.slice(startIndex, startIndex+3) !== "AUG") return "Lost start codon";
       if(op==="Point mutation (SNP)"){
         if(newAA===oldAA) return "Silent";
-        if(newAA.length < oldAA.length) return "Nonsense"; // premature stop
-        return "Missense"; // same length but different residues
+        if(newAA.length < oldAA.length) return "Nonsense";
+        return "Missense";
       }
-      // Indels: frameshift unless length is multiple of 3 **and** the edit begins at a codon boundary
       if(op==="Insertion" || op==="Deletion"){
         if((k % 3) !== 0) return "Frameshift";
-        const inFrameBoundary = ((pos - startIndex) % 3 === 0);
-        return inFrameBoundary ? "Unknown impact" : "Frameshift";
+        return isBoundary(pos,startIndex) ? "Unknown impact" : "Frameshift";
       }
       return "Frameshift";
     }
@@ -174,7 +190,7 @@
       const stopIdx = findStopIndex(mrna,startIndex); if(stopIdx<0) return null;
       const dnaType = pick(["Point mutation (SNP)","Insertion","Deletion"]);
       const arr = mrna.split("");
-      let k=1; // number of bases added/removed for indels
+      let k=1;
       let pos = startIndex + Math.floor(Math.random() * Math.max(1, (stopIdx - startIndex - 1)));
       pos = Math.max(startIndex, Math.min(pos, stopIdx-1));
 
@@ -198,30 +214,6 @@
       return { mutMrna, dnaType, proteinType, k, oldAA, newAA, pos };
     }
 
-    // Optional legacy helper kept tidy (not used by UI)
-    function mutateForCategory(mrna,startIndex,goal){
-      const dnaType = goal?.d; if(!dnaType) return null;
-      const stopIdx = findStopIndex(mrna,startIndex); if(stopIdx<0) return null;
-      const arr = mrna.split("");
-      let k=1;
-      let pos = startIndex + Math.floor(Math.random() * Math.max(1, (stopIdx - startIndex - 1)));
-      pos = Math.max(startIndex, Math.min(pos, stopIdx-1));
-
-      if(dnaType.startsWith("Point")){
-        const options = BASES.filter(b=>b!==arr[pos]);
-        arr[pos] = pick(options);
-      } else if(dnaType === "Insertion"){
-        k = (Math.random()<0.5?1:3);
-        const ins = Array.from({length:k},()=>pick(BASES));
-        arr.splice(pos,0,...ins);
-      } else if(dnaType === "Deletion"){
-        k = (Math.random()<0.5?1:3);
-        if(pos + k > stopIdx) pos = Math.max(startIndex, stopIdx - k);
-        arr.splice(pos,k);
-      } else { return null; }
-      return arr.join("");
-    }
-
     function diffSpans(a,b){
       const out=[]; const n=Math.max(a.length,b.length);
       for(let i=0;i<n;i++){
@@ -231,100 +223,55 @@
       return out;
     }
 
-    function MutationModule({ mrna, startIndex, onFirstCorrect }){
-      const [challenge,setChallenge]=useState(null); // {mutMrna, dnaType, proteinType}
-      const [showHelper,setShowHelper]=useState(false);
-      const [dnaAnswer,setDnaAnswer]=useState("");
-      const [protAnswer,setProtAnswer]=useState("");
-      const [checked,setChecked]=useState(false);
-      const [notified,setNotified]=useState(false);
-      const [showProteins,setShowProteins]=useState(false);
+    // ---------- Codon Tracker ----------
+    function CodonTracker({ mrna, startIndex, difficulty, manualStart, onResetManualStart }){
+      const [checked, setChecked] = useState(new Set());
 
-      const generateRandom=()=>{
-        const c = mutateRandom(mrna,startIndex);
-        if(c) { setChallenge(c); setDnaAnswer(""); setProtAnswer(""); setChecked(false); setShowProteins(false);} else { alert("Couldn’t generate a valid mutation. Try again."); }
-      };
+      const effectiveStart = (difficulty === 'Beginner') ? startIndex : (typeof manualStart === 'number' ? manualStart : null);
 
-      const ok = checked && challenge && dnaAnswer===challenge.dnaType && protAnswer===challenge.proteinType;
-      useEffect(()=>{ if(ok && !notified && onFirstCorrect){ setNotified(true); onFirstCorrect(); } }, [ok, notified, onFirstCorrect]);
-
-      const originalAA = useMemo(()=> translateFrom(mrna, startIndex).aas, [mrna, startIndex]);
-      const mutatedAA = useMemo(()=> challenge ? translateFrom(challenge.mutMrna, startIndex).aas : "", [challenge, startIndex]);
-
-      const explanation = React.useMemo(()=>{
-        if(!challenge) return "";
-        const { dnaType, proteinType, k, pos } = challenge;
-        if (proteinType === "Lost start codon") {
-          return "The first AUG start codon was disrupted — translation would be unable to initiate correctly.";
+      const codonChunks = useMemo(() => {
+        if (effectiveStart == null) return [];
+        const chunks = [];
+        // Build chips from the chosen base. Always show at least one chip,
+        // even if it's a partial (<3 nt). Stop after first full stop codon.
+        for (let i = effectiveStart; i < mrna.length; i += 3) {
+          const end = Math.min(i + 3, mrna.length);
+          const c = mrna.slice(i, end);
+          const partial = (end - i) < 3;
+          chunks.push({ i, c, partial });
+          if (!partial && CODON_TABLE[c]?.isStop) break;
+          if (chunks.length >= 120) break; // hard safety cap
         }
-        if(dnaType==="Point mutation (SNP)"){
-          if(proteinType==="Silent") return "Single‑nucleotide change that did not alter the amino acid.";
-          if(proteinType==="Missense") return "Single‑nucleotide change altered a codon, changing one amino acid.";
-          if(proteinType==="Nonsense") return "Single‑nucleotide change created a premature stop codon, truncating the protein.";
-        } else {
-          const boundaryNote = ((pos - startIndex) % 3 === 0) ? "at a codon boundary" : "mid‑codon (not at a codon boundary)";
-          if(proteinType==="Frameshift") return `${dnaType}: ${k} base(s) changed ${boundaryNote} — the reading frame is disrupted.`;
-          if(proteinType==="Unknown impact") return `${dnaType}: ${k} base(s) changed at a codon boundary (multiple of 3) — frame preserved; residues added/removed.`;
-        }
-        return "";
-      },[challenge, startIndex]);
+        return chunks;
+      }, [effectiveStart, mrna, difficulty]);
+
+      const toggle = (i) => setChecked(prev => { const next = new Set(prev); if (next.has(i)) next.delete(i); else next.add(i); return next; });
+      const reset = () => setChecked(new Set());
 
       return (
-        <section className="p-4 rounded-2xl bg-white border shadow-sm space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="font-medium">Mutation challenge</h3>
-            <div className="flex gap-2">
-              <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={generateRandom}>Generate mutated mRNA</button>
-              <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>setShowHelper(true)}>Mutation helper</button>
+        <section className="p-4 rounded-2xl bg-white border shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-medium">Codon tracker</h3>
+            <div className="flex gap-2 items-center text-xs text-slate-600">
+              {difficulty==='Advanced' && (
+                <>
+                  <span>Start: {manualStart==null? 'click a base in the mRNA to set' : manualStart}</span>
+                  {manualStart!=null && <button className="px-2 py-1 rounded-lg border bg-white hover:bg-slate-50" onClick={onResetManualStart}>Clear start</button>}
+                </>
+              )}
             </div>
           </div>
-
-          {challenge && (
-            <div className="space-y-2">
-              <div>
-                <div className="text-xs text-slate-500 mb-1">Original mRNA</div>
-                <div className="leading-7 flex flex-wrap">{mrna.split("").map((c,i)=>(<span key={i} className="font-mono px-[1px]">{c}</span>))}</div>
-              </div>
-              <div>
-                <div className="text-xs text-slate-500 mb-1">Mutated mRNA (differences highlighted)</div>
-                <div className="leading-7 flex flex-wrap">{diffSpans(mrna, challenge.mutMrna)}</div>
-              </div>
-
-              <div className="p-3 rounded-xl border bg-slate-50">
-                <div className="flex flex-wrap gap-2 items-center">
-                  <select className="border rounded-xl px-2 py-1" value={dnaAnswer} onChange={e=>{setDnaAnswer(e.target.value); setChecked(false);}}>
-                    <option value="">Select DNA mutation…</option>
-                    {DNA_TYPES.map(x=> <option key={x} value={x}>{x}</option>)}
-                  </select>
-                  <select className="border rounded-xl px-2 py-1" value={protAnswer} onChange={e=>{setProtAnswer(e.target.value); setChecked(false);}}>
-                    <option value="">Select protein mutation…</option>
-                    {PROTEIN_TYPES.map(x=> <option key={x} value={x}>{x}</option>)}
-                  </select>
-                  <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>setChecked(true)} disabled={!dnaAnswer||!protAnswer}>Check</button>
-                  <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>setShowProteins(s=>!s)}>{showProteins?"Hide translated proteins":"Show translated proteins"}</button>
-                </div>
-
-                {checked && (
-                  <div className="mt-2 text-sm text-slate-800">
-                    <div>DNA: <span className="font-medium">{dnaAnswer||"—"}</span> → {dnaAnswer===(challenge?.dnaType) ? <span className="text-emerald-700">✓ Correct</span> : <span className="text-rose-700">✗ Correct is {challenge?.dnaType}</span>}</div>
-                    <div className="mt-1">Protein: <span className="font-medium">{protAnswer||"—"}</span> → {protAnswer===(challenge?.proteinType) ? <span className="text-emerald-700">✓ Correct</span> : <span className="text-rose-700">✗ Correct is {challenge?.proteinType}</span>}</div>
-                    {explanation && <div className="mt-2 text-slate-700 text-xs">{explanation}</div>}
-                    <div className={"mt-2 "+(dnaAnswer===challenge?.dnaType && protAnswer===challenge?.proteinType?"text-emerald-700":"text-rose-700")}>{dnaAnswer===challenge?.dnaType && protAnswer===challenge?.proteinType?"Correct!":"Not quite — use the Mutation helper and try again."}</div>
-                  </div>
-                )}
-
-                {showProteins && (
-                  <div className="mt-2 text-xs text-slate-700">
-                    <div><span className="font-medium">Original protein:</span> {originalAA}</div>
-                    <div className="mt-1"><span className="font-medium">Mutated protein:</span> {mutatedAA}</div>
-                    <div className="mt-1 text-slate-600">{(mutatedAA.length===originalAA.length?"Frame preserved (possible ×3-base change).":"Frameshift likely (length changed).")}</div>
-                  </div>
-                )}
-              </div>
-            </div>
+          <p className="text-xs text-slate-600 mb-2">
+            {difficulty==='Beginner' ? 'Tracking from the highlighted AUG.' : (effectiveStart==null ? 'Click any base in the mRNA above to set your starting position, then tick codons as you go.' : 'Tracker uses your chosen starting base. Click codons to tick them off.')} 
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {codonChunks.map(({i,c,partial},idx)=> (
+              <button key={i} onClick={() => toggle(i)} className={`px-2 py-1 rounded-md border ${partial ? 'border-dashed' : ''} border-slate-300 text-sm font-mono ${checked.has(i) ? 'line-through opacity-50 bg-slate-100' : 'bg-white'}`} title={`Codon ${idx+1} @ ${i}`}>{c}</button>
+            ))}
+          </div>
+          {effectiveStart==null && (
+            <div className="text-xs text-slate-500 mt-2">Tip: in Advanced mode you must set a start by clicking a base in the mRNA above.</div>
           )}
-
-          <MutationHelperModal show={showHelper} onClose={()=>setShowHelper(false)} />
         </section>
       );
     }
@@ -336,7 +283,9 @@
       const [mrna,setMrna]=useState("");
       const [utr5Len,setUtr5Len]=useState(0);
       const [startIndex,setStartIndex]=useState(0);
-      const [userAA,setUserAA]=useState("");
+      const [rawInput,setRawInput]=useState("");
+      const [aaMode,setAaMode]=useState('1'); // '1' or '3'
+      const [userAA,setUserAA]=useState(""); // internal 1-letter
       const [submitted,setSubmitted]=useState(false);
       const [showAnswer,setShowAnswer]=useState(false);
       const [showCodonHelp,setShowCodonHelp]=useState(false);
@@ -344,28 +293,55 @@
       const [showTutorial,setShowTutorial]=useState(false);
       const [showNextTip,setShowNextTip]=useState(false);
       const [firstSubmitSeen,setFirstSubmitSeen]=useState(false);
-      const [submitCount,setSubmitCount]=useState(0); // for feedback trigger on 2nd submit
+      const [submitCount,setSubmitCount]=useState(0);
+      const [manualStart,setManualStart]=useState(null);
 
-      useEffect(()=>{try{const o=localStorage.getItem(TUTORIAL_OPT_OUT_KEY)==="1"; if(!o) setShowTutorial(true);}catch{} } ,[]);
+      const newRound=()=>{const b=buildmRNA({peptideLength:lengthAA}); setMrna(b.mrna); setUtr5Len(b.utr5Len); setStartIndex(b.utr5Len); setRawInput(""); setUserAA(""); setSubmitted(false); setShowAnswer(false); setManualStart(null)};
 
-      const newRound=()=>{const b=buildmRNA({peptideLength:lengthAA}); setMrna(b.mrna); setUtr5Len(b.utr5Len); setStartIndex(b.utr5Len); setUserAA(""); setSubmitted(false); setShowAnswer(false)};
       useEffect(()=>{newRound()},[]);
       useEffect(()=>{newRound()},[difficulty,lengthAA]);
+      useEffect(()=>{ try{const o=localStorage.getItem(TUTORIAL_OPT_OUT_KEY)==="1"; if(!o) setShowTutorial(true);}catch{} },[]);
 
       const translation=useMemo(()=>translateFrom(mrna,startIndex),[mrna,startIndex]);
       const expected=translation.aas;
+
+      // Parse input
+      const parseThreeLetter = (text) => {
+        const tokens = text.toUpperCase().match(/([A-Z]{3})/g) || [];
+        const letters = tokens.map(t=>AA3_TO_1[t]||"").filter(Boolean).join("");
+        return letters;
+      };
+
+      const handleAAInput = (text) => {
+        setRawInput(text);
+        let letters = "";
+        if (aaMode === '1') {
+          letters = text.toUpperCase().replace(/[^ARNDCEQGHILKMFPSTWYV]/g,"");
+        } else {
+          letters = parseThreeLetter(text);
+        }
+        setUserAA(letters.slice(0, expected.length));
+        setSubmitted(false);
+      };
+
       const scorePct=useMemo(()=>{let c=0;for(let i=0;i<expected.length;i++){ if((userAA[i]||"").toUpperCase()===expected[i]) c++; } return expected.length?Math.round(c/expected.length*100):0;},[expected,userAA]);
 
-      const renderMrna=useMemo(()=>{const out=[];let i=0;while(i<mrna.length){ if(difficulty==="Beginner"&&i===utr5Len&&mrna.slice(i,i+3)==="AUG"){ out.push(<span key={"aug"+i} className="inline-flex items-center justify-center font-mono text-sm md:text-base px-1.5 py-0.5 mx-[1px] rounded-md border bg-emerald-50 border-emerald-300" title="Start codon (AUG)">AUG</span>); i+=3; continue;} out.push(<span key={"b"+i} className="font-mono text-sm md:text-base px-[2px]">{mrna[i]}</span>); i++; } return out; },[mrna,utr5Len,difficulty]);
+      const renderMrna=useMemo(()=>{
+        const out=[];let i=0;while(i<mrna.length){
+          const isStartHere = i===utr5Len && mrna.slice(i,i+3)==="AUG";
+          const selected = (difficulty==='Advanced' && manualStart===i);
+          const spanProps = { 'data-i': i, key: `b${i}`, className: `font-mono text-sm md:text-base px-[2px] cursor-pointer ${selected? 'bg-amber-100 rounded-sm underline' : ''}` };
+          if(difficulty==="Beginner" && isStartHere){ out.push(<span key={"aug"+i} className="inline-flex items-center justify-center font-mono text-sm md:text-base px-1.5 py-0.5 mx-[1px] rounded-md border bg-emerald-50 border-emerald-300" title="Start codon (AUG)">AUG</span>); i+=3; continue; }
+          out.push(<span {...spanProps}>{mrna[i]}</span>); i++; }
+        return out;
+      },[mrna,utr5Len,difficulty,manualStart]);
 
-      const handleAAInput=val=>{const cleaned=val.toUpperCase().replace(/[^ARNDCEQGHILKMFPSTWYV]/g,"").slice(0,expected.length); setUserAA(cleaned); setSubmitted(false)};
       const handleSubmit=()=> {
         setSubmitted(true);
         if(!firstSubmitSeen){ setShowNextTip(true); setFirstSubmitSeen(true);} 
         setSubmitCount((c)=>{ const next=c+1; if(next===2) setShowFeedback(true); return next; });
       };
 
-      // When mutation quiz first correct → feedback prompt
       const handleMutationFirstCorrect = () => setShowFeedback(true);
 
       return (
@@ -374,7 +350,7 @@
             <header className="flex items-start justify-between">
               <div>
                 <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Genetic Code Translator</h1>
-                <p className="text-slate-600 mt-1">Translate the mRNA (5′→3′) into a polypeptide. Type one‑letter amino‑acid codes (no stop). Start codon is AUG.</p>
+                <p className="text-slate-600 mt-1">Translate the mRNA (5′→3′) into a polypeptide. Type one‑letter <span className="hidden sm:inline">or switch to 3‑letter</span> amino‑acid codes (no stop). Start codon is AUG.</p>
               </div>
               <div className="flex gap-2">
                 <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>navigator.clipboard?.writeText(mrna)}>Copy mRNA</button>
@@ -414,25 +390,27 @@
                 <h2 className="font-medium">mRNA (5′ → 3′)</h2>
                 <div className="text-xs text-slate-500">{difficulty==="Beginner"?"Start codon highlighted.":"No hints shown."}</div>
               </div>
-              <div className="flex flex-wrap items-center leading-7">{renderMrna}</div>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="text-sm">AA input:</div>
+                <div className="inline-flex rounded-xl border overflow-hidden">
+                  <button className={`px-3 py-1.5 text-sm ${aaMode==='1'?'bg-slate-900 text-white':'bg-white'}`} onClick={()=>{setAaMode('1'); setRawInput(userAA);}}>1‑letter</button>
+                  <button className={`px-3 py-1.5 text-sm ${aaMode==='3'?'bg-slate-900 text-white':'bg-white'}`} onClick={()=>{setAaMode('3'); setRawInput(userAA.split('').map(x=>AA1_TO_3[x]||'').filter(Boolean).join(' '));}}>3‑letter</button>
+                </div>
+                <div className="ml-auto text-xs text-slate-500">Advanced: click any base in the mRNA to set a start for the tracker.</div>
+              </div>
+              <div className="flex flex-wrap items-center leading-7" onClick={(e)=>{ if(difficulty!=='Advanced') return; const el = e.target.closest('[data-i]'); if(!el) return; const idx = Number(el.getAttribute('data-i')); if(Number.isFinite(idx)) setManualStart(idx); }}>
+                {renderMrna}
+              </div>
             </section>
 
-            {difficulty==="Beginner" && (
-              <section className="p-4 rounded-2xl bg-white border shadow-sm">
-                <h3 className="font-medium mb-2">Reading frame (from start to first stop)</h3>
-                <div className="flex flex-wrap items-center">
-                  {translateFrom(mrna,startIndex).codons.map((codon,i)=>(
-                    <span key={i} className={["inline-flex items-center justify-center rounded-md px-2 py-1 mx-0.5 border text-sm font-mono select-none", CODON_TABLE[codon]?.isStop?"bg-rose-50 border-rose-300":"border-slate-300"].join(" ")}>{codon}</span>
-                  ))}
-                </div>
-              </section>
-            )}
+            {/* Codon tracker UI (always on) */}
+            <CodonTracker mrna={mrna} startIndex={startIndex} difficulty={difficulty} manualStart={manualStart} onResetManualStart={()=>setManualStart(null)} />
 
             <section className="p-4 rounded-2xl bg-white border shadow-sm space-y-4">
               <div className="flex items-center gap-3 flex-wrap">
-                <label className="text-sm font-medium">Your protein (1‑letter):</label>
-                <input value={userAA} onChange={e=>handleAAInput(e.target.value)} placeholder="e.g., MHFST…" className="flex-1 min-w-[240px] px-3 py-2 rounded-xl border bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-                <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>{setUserAA(""); setSubmitted(false)}}>Clear</button>
+                <label className="text-sm font-medium">Your protein ({aaMode==='1'?'1‑letter':'3‑letter'}):</label>
+                <input value={rawInput} onChange={e=>handleAAInput(e.target.value)} placeholder={aaMode==='1'?"e.g., MHFST…":"e.g., Met Ala Cys …"} className="flex-1 min-w-[240px] px-3 py-2 rounded-xl border bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>{setRawInput(""); setUserAA(""); setSubmitted(false)}}>Clear</button>
                 <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={handleSubmit} disabled={userAA.length===0}>Submit</button>
               </div>
 
@@ -448,8 +426,8 @@
                             <tr key={i} className={ok?"bg-emerald-50":has?"bg-rose-50":""}>
                               <td className="px-2 py-1 border text-center">{i+1}</td>
                               <td className="px-2 py-1 border font-mono text-center">{has?codon:""}</td>
-                              <td className="px-2 py-1 border text-center">{u}</td>
-                              <td className="px-2 py-1 border text-center">{has?(info?.isStop?"Stop":correctAA):""}</td>
+                              <td className="px-2 py-1 border text-center" title={AA1_TO_3[u]||""}>{u}</td>
+                              <td className="px-2 py-1 border text-center" title={AA1_TO_3[correctAA]||""}>{has?(info?.isStop?"Stop":correctAA):""}</td>
                               <td className="px-2 py-1 border text-center">{has?(info?.isStop?"Stop":ok?"✓":"✗"):""}</td>
                             </tr>
                           )})}
@@ -521,7 +499,104 @@
       );
     }
 
-    // React 17 render for sandbox compatibility
+    // ---------- Mutation module (uses updated classifier) ----------
+    function MutationModule({ mrna, startIndex, onFirstCorrect }){
+      const [challenge,setChallenge]=useState(null); // {mutMrna, dnaType, proteinType}
+      const [showHelper,setShowHelper]=useState(false);
+      const [dnaAnswer,setDnaAnswer]=useState("");
+      const [protAnswer,setProtAnswer]=useState("");
+      const [checked,setChecked]=useState(false);
+      const [notified,setNotified]=useState(false);
+      const [showProteins,setShowProteins]=useState(false);
+
+      const generateRandom=()=>{
+        const c = mutateRandom(mrna,startIndex);
+        if(c) { setChallenge(c); setDnaAnswer(""); setProtAnswer(""); setChecked(false); setShowProteins(false);} else { alert("Couldn’t generate a valid mutation. Try again."); }
+      };
+
+      const ok = checked && challenge && dnaAnswer===challenge.dnaType && protAnswer===challenge.proteinType;
+      useEffect(()=>{ if(ok && !notified && onFirstCorrect){ setNotified(true); onFirstCorrect(); } }, [ok, notified, onFirstCorrect]);
+
+      const originalAA = useMemo(()=> translateFrom(mrna, startIndex).aas, [mrna, startIndex]);
+      const mutatedAA = useMemo(()=> challenge ? translateFrom(challenge.mutMrna, startIndex).aas : "", [challenge, startIndex]);
+
+      const explanation = React.useMemo(()=>{
+        if(!challenge) return "";
+        const { dnaType, proteinType, k, pos } = challenge;
+        if (proteinType === "Lost start codon") return "The first AUG start codon was disrupted — translation would be unable to initiate correctly.";
+        if(dnaType==="Point mutation (SNP)"){
+          if(proteinType==="Silent") return "Single‑nucleotide change that did not alter the amino acid.";
+          if(proteinType==="Missense") return "Single‑nucleotide change altered a codon, changing one amino acid.";
+          if(proteinType==="Nonsense") return "Single‑nucleotide change created a premature stop codon, truncating the protein.";
+        } else {
+          const boundaryNote = isBoundary(pos, startIndex) ? "at a codon boundary" : "mid‑codon (not at a codon boundary)";
+          if(proteinType==="Frameshift") return `${dnaType}: ${k} base(s) changed ${boundaryNote} — the reading frame is disrupted.`;
+          if(proteinType==="Unknown impact") return `${dnaType}: ${k} base(s) changed at a codon boundary (multiple of 3) — frame preserved; residues added/removed.`;
+        }
+        return "";
+      },[challenge, startIndex]);
+
+      return (
+        <section className="p-4 rounded-2xl bg-white border shadow-sm space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="font-medium">Mutation challenge</h3>
+            <div className="flex gap-2">
+              <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={generateRandom}>Generate mutated mRNA</button>
+              <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>setShowHelper(true)}>Mutation helper</button>
+            </div>
+          </div>
+
+          {challenge && (
+            <div className="space-y-2">
+              <div>
+                <div className="text-xs text-slate-500 mb-1">Original mRNA</div>
+                <div className="leading-7 flex flex-wrap">{mrna.split("").map((c,i)=>(<span key={i} className="font-mono px-[1px]">{c}</span>))}</div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500 mb-1">Mutated mRNA (differences highlighted)</div>
+                <div className="leading-7 flex flex-wrap">{diffSpans(mrna, challenge.mutMrna)}</div>
+              </div>
+
+              <div className="p-3 rounded-xl border bg-slate-50">
+                <div className="flex flex-wrap gap-2 items-center">
+                  <select className="border rounded-xl px-2 py-1" value={dnaAnswer} onChange={e=>{setDnaAnswer(e.target.value); setChecked(false);}}>
+                    <option value="">Select DNA mutation…</option>
+                    {DNA_TYPES.map(x=> <option key={x} value={x}>{x}</option>)}
+                  </select>
+                  <select className="border rounded-xl px-2 py-1" value={protAnswer} onChange={e=>{setProtAnswer(e.target.value); setChecked(false);}}>
+                    <option value="">Select protein mutation…</option>
+                    {PROTEIN_TYPES.map(x=> <option key={x} value={x}>{x}</option>)}
+                  </select>
+                  <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>setChecked(true)} disabled={!dnaAnswer||!protAnswer}>Check</button>
+                  <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>setShowProteins(s=>!s)}>{showProteins?"Hide translated proteins":"Show translated proteins"}</button>
+                </div>
+
+                {checked && (
+                  <div className="mt-2 text-sm text-slate-800">
+                    <div>DNA: <span className="font-medium">{dnaAnswer||"—"}</span> → {dnaAnswer===(challenge?.dnaType) ? <span className="text-emerald-700">✓ Correct</span> : <span className="text-rose-700">✗ Correct is {challenge?.dnaType}</span>}</div>
+                    <div className="mt-1">Protein: <span className="font-medium">{protAnswer||"—"}</span> → {protAnswer===(challenge?.proteinType) ? <span className="text-emerald-700">✓ Correct</span> : <span className="text-rose-700">✗ Correct is {challenge?.proteinType}</span>}</div>
+                    {explanation && <div className="mt-2 text-slate-700 text-xs">{explanation}</div>}
+                    <div className={"mt-2 "+(dnaAnswer===challenge?.dnaType && protAnswer===challenge?.proteinType?"text-emerald-700":"text-rose-700")}>{dnaAnswer===challenge?.dnaType && protAnswer===challenge?.proteinType?"Correct!":"Not quite — use the Mutation helper and try again."}</div>
+                  </div>
+                )}
+
+                {showProteins && (
+                  <div className="mt-2 text-xs text-slate-700">
+                    <div><span className="font-medium">Original protein:</span> {originalAA}</div>
+                    <div className="mt-1"><span className="font-medium">Mutated protein:</span> {mutatedAA}</div>
+                    <div className="mt-1 text-slate-600">{(mutatedAA.length===originalAA.length?"Frame preserved (possible ×3-base change).":"Frameshift likely (length changed).")}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <MutationHelperModal show={showHelper} onClose={()=>setShowHelper(false)} />
+        </section>
+      );
+    }
+
+    // Render app (React 17)
     ReactDOM.render(<App/>, document.getElementById('root'));
 
     // --------- Minimal smoke tests (console) ---------
@@ -529,45 +604,35 @@
       try{
         const testMrna = "AAA" + "AUG" + "GCU" + "GCU" + "UAA" + "AAA";
         const startIdx = 3;
-        const rnd = mutateRandom(testMrna, startIdx);
-        console.assert(rnd && typeof rnd.mutMrna === "string" && rnd.dnaType && rnd.proteinType, "mutateRandom returns full object with computed classification");
 
-        // Manual ×3-base insertion preserves frame → Unknown impact (boundary)
         const before = translateFrom(testMrna,startIdx).aas;
-        const arr = testMrna.split("");
-        arr.splice(startIdx+3,0,"A","A","A");
-        const after = translateFrom(arr.join(""),startIdx).aas;
-        const protType = classifyProteinEffect({op:"Insertion",k:3,oldAA:before,newAA:after,pos:startIdx+3,startIndex:startIdx,mutMrna:arr.join("")});
-        console.assert(protType === "Unknown impact","×3 boundary indel → Unknown impact");
+        console.assert(before.startsWith("MA"), "Baseline translation starts with M...");
 
-        // Manual 1-base deletion → Frameshift
+        // ×3 insertion at codon boundary → Unknown impact
+        const arr1 = testMrna.split("");
+        arr1.splice(startIdx+3,0,"A","A","A");
+        const after1 = translateFrom(arr1.join(""),startIdx).aas;
+        const t1 = classifyProteinEffect({op:"Insertion",k:3,oldAA:before,newAA:after1,pos:startIdx+3,startIndex:startIdx,mutMrna:arr1.join("")});
+        console.assert(t1 === "Unknown impact","×3 boundary indel → Unknown impact");
+
+        // 1-base deletion (mid-codon) → Frameshift
         const arr2 = testMrna.split("");
         arr2.splice(startIdx+4,1);
         const after2 = translateFrom(arr2.join(""),startIdx).aas;
-        const protType2 = classifyProteinEffect({op:"Deletion",k:1,oldAA:before,newAA:after2,pos:startIdx+4,startIndex:startIdx,mutMrna:arr2.join("")});
-        console.assert(protType2 === "Frameshift","1-base indel → Frameshift");
+        const t2 = classifyProteinEffect({op:"Deletion",k:1,oldAA:before,newAA:after2,pos:startIdx+4,startIndex:startIdx,mutMrna:arr2.join("")});
+        console.assert(t2 === "Frameshift","1-base indel → Frameshift");
 
-        // ×3-base insertion mid-codon should be Frameshift under teaching rule
+        // Point mutation at AUG → Lost start codon
         const arr3 = testMrna.split("");
-        arr3.splice(startIdx+4,0,"A","A","A");
-        const after3 = translateFrom(arr3.join(""),startIdx).aas;
-        const protType3 = classifyProteinEffect({op:"Insertion",k:3,oldAA:before,newAA:after3,pos:startIdx+4,startIndex:startIdx,mutMrna:arr3.join("")});
-        console.assert(protType3 === "Frameshift","×3 mid‑codon indel → Frameshift (teaching rule)");
+        arr3[startIdx] = arr3[startIdx] === "A" ? "C" : "C";
+        const mut3 = arr3.join("");
+        const after3 = translateFrom(mut3,startIdx).aas;
+        const t3 = classifyProteinEffect({op:"Point mutation (SNP)",k:1,oldAA:before,newAA:after3,pos:startIdx,startIndex:startIdx,mutMrna:mut3});
+        console.assert(t3 === "Lost start codon","Point mutation at start AUG → Lost start codon");
 
-        // Lost-start tests
-        const arr4 = testMrna.split("");
-        arr4[startIdx] = (arr4[startIdx] === "A" ? "C" : "C");
-        const mut4 = arr4.join("");
-        const after4 = translateFrom(mut4,startIdx).aas;
-        const type4 = classifyProteinEffect({op:"Point mutation (SNP)",k:1,oldAA:before,newAA:after4,pos:startIdx,startIndex:startIdx,mutMrna:mut4});
-        console.assert(type4 === "Lost start codon","Point mutation at start AUG → Lost start codon");
-
-        const arr5 = testMrna.split("");
-        arr5.splice(startIdx,0,"C"); // insert one base at the beginning of AUG
-        const mut5 = arr5.join("");
-        const after5 = translateFrom(mut5,startIdx).aas;
-        const type5 = classifyProteinEffect({op:"Insertion",k:1,oldAA:before,newAA:after5,pos:startIdx,startIndex:startIdx,mutMrna:mut5});
-        console.assert(type5 === "Lost start codon","Insertion at AUG → Lost start codon");
+        // Parser 3-letter → 1-letter
+        const parsed = ("Met Ala Cys").toUpperCase().match(/([A-Z]{3})/g).map(t=>AA3_TO_1[t]||"").join("");
+        console.assert(parsed === "MAC","3-letter parser converts to MAC");
 
         console.log("[Genetic Code Translator] tests passed.");
       }catch(err){
