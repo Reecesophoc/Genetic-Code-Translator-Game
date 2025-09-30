@@ -10,8 +10,11 @@
   <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
-<body class="bg-slate-50 min-h-screen">
-  <div id="root"></div>
+<body class="bg-slate-50 min-h-screen flex flex-col">
+  <div id="root" class="flex-grow"></div>
+  <footer class="text-center text-xs text-slate-500 py-4">
+    Created by Reece Sophocleous at The University of Sydney with GPT-5. Version 1.17.
+  </footer>
 
   <script type="text/babel">
     const { useEffect, useMemo, useState } = React; // React 17
@@ -57,7 +60,7 @@
       return{mrna:utr5+coding+utr3,utr5Len,utr3Len,peptide,coding}
     };
 
-    // Translation from an index (no highlight assumptions)
+    // Translate starting at a given index (stops at Stop codon or end)
     function translateFrom(mrna,startIndex){
       if(!Number.isFinite(startIndex) || startIndex<0) return {codons:[], aas:""};
       const codons=[];const aas=[];
@@ -185,8 +188,8 @@
               <div className="flex items-center gap-2">
                 <div className="text-[11px] text-slate-600">Labels:</div>
                 <div className="inline-flex border rounded-lg overflow-hidden text-[11px]">
-                  <button className={`px-2 py-1 ${labelMode==='1'?'bg-slate-900 text-white':'bg-white'}`} onClick={()=>setLabelMode('1')}>1‑letter</button>
-                  <button className={`px-2 py-1 ${labelMode==='3'?'bg-slate-900 text-white':'bg-white'}`} onClick={()=>setLabelMode('3')}>3‑letter</button>
+                  <button className={`${labelMode==='1'?'bg-slate-900 text-white':'bg-white'} px-2 py-1`} onClick={()=>setLabelMode('1')}>1‑letter</button>
+                  <button className={`${labelMode==='3'?'bg-slate-900 text-white':'bg-white'} px-2 py-1`} onClick={()=>setLabelMode('3')}>3‑letter</button>
                 </div>
                 <button className="px-2 py-1 rounded-lg border" onClick={onClose}>Close</button>
               </div>
@@ -453,7 +456,7 @@
               <div className="flex gap-2 items-center">
                 <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>navigator.clipboard?.writeText(mrna)}>Copy mRNA</button>
                 <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>setShowCodonHelp(true)}>Codon helper</button>
-                <button className={`px-3 py-2 rounded-xl border shadow-sm ${dockCodon?'bg-slate-900 text-white border-slate-900':'bg-white hover:bg-slate-50'}`} onClick={()=>setDockCodon(s=>!s)}>{dockCodon? 'Hide codon chart' : 'Dock codon chart'}</button>
+                <button className={`${dockCodon?'bg-slate-900 text-white border-slate-900':'bg-white hover:bg-slate-50'} px-3 py-2 rounded-xl border shadow-sm`} onClick={()=>setDockCodon(s=>!s)}>{dockCodon? 'Hide codon chart' : 'Dock codon chart'}</button>
                 <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>setShowTutorial(true)}>Help</button>
                 <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>setShowFeedback(true)}>Leave feedback</button>
               </div>
@@ -538,7 +541,7 @@
                     <h3 className="font-medium mb-2">Summary</h3>
                     <div className="p-3 rounded-xl border bg-slate-50">
                       <div className="text-3xl font-semibold">{scorePct}%</div>
-                      <div className="text-sm text-slate-600 mt-1">accuracy across {expected.length} codons</div>
+                      <div className="text-sm mt-1 text-slate-600">accuracy across {expected.length} codons</div>
                     </div>
                     <div className="mt-3 flex gap-2">
                       <button className="px-3 py-2 rounded-xl border bg-white hover:bg-slate-50 shadow-sm" onClick={()=>setShowAnswer(s=>!s)}>{showAnswer?"Hide answer":"Show answer"}</button>
